@@ -1,9 +1,9 @@
 FROM golang:1.25-alpine
 
-label maintainer="ksokos"
-label app="go-web-server"
-label version=1.0
-label description="ascii art web"
+LABEL maintainer="ktsioupr"
+LABEL app="go-web-server"
+LABEL version=1.0
+LABEL description="ascii art web"
 
 # Set working directory
 WORKDIR /app

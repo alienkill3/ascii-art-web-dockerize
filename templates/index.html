@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ASCII Art Web</title>
+    <link rel="stylesheet" href="/static/styles.css">
+</head>
+
+<body>
+    <main class="page">
+        <section class="panel">
+            <h1>ASCII Art Web</h1>
+            <p class="hero-subtitle">Create stylish ASCII art instantly</p>
+
+            <form action="/ascii-art" method="post">
+                <div>
+                    <div class="input-header">
+                        <label class="field-label" for="text">Input</label>
+                        <button type="button" class="clear-input" id="clear-input" {{if not .Input}}disabled{{end}}>
+                            <span class="clear-input-icon" aria-hidden="true">×</span>
+                            <span>Clear</span>
+                        </button>
+                    </div>
+                    <textarea id="text" name="text" maxlength="2000">{{.Input}}</textarea>
+                    <div class="input-meta char-counter normal" id="char-counter">
+                        Characters : <span id="char-count">{{.InputLength}}</span>/2000
+                    </div>
+                </div>
+
+                <div>
+                    <span class="field-label">Banner</span>
+                    <div class="banner-options">
+                        <label class="banner-option standard-option">
+                            <input type="radio" name="banner" value="standard" {{if eq .Banner "standard"
+                                }}checked{{end}}>
+                            <span class="option-content">
+                                <span class="option-icon" aria-hidden="true">◫</span>
+                                <span class="option-label">standard</span>
+                            </span>
+                        </label>
+
+                        <label class="banner-option shadow-option">
+                            <input type="radio" name="banner" value="shadow" {{if eq .Banner "shadow" }}checked{{end}}>
+                            <span class="option-content">
+                                <span class="option-icon" aria-hidden="true">◌</span>
+                                <span class="option-label">shadow</span>
+                            </span>
+                        </label>
+
+                        <label class="banner-option thinkertoy-option">
+                            <input type="radio" name="banner" value="thinkertoy" {{if eq .Banner "thinkertoy"
+                                }}checked{{end}}>
+                            <span class="option-content">
+                                <span class="option-icon" aria-hidden="true">✦</span>
+                                <span class="option-label">thinkertoy</span>
+                            </span>
+                        </label>
+                    </div>
+                </div>
+
+                <div>
+                    <span class="field-label">Color</span>
+                    <div class="color-picker-container">
+                        <input type="color" id="color-input" name="color" value="#00e0ff" class="color-wheel">
+                        <span class="color-value" id="color-value">#00e0ff</span>
+                    </div>
+                </div>
+
+                <button type="submit" id="generate-button">
+                    <span class="button-icon" aria-hidden="true">✦</span>
+                    <span class="button-text">Generate</span>
+                    <span class="button-spinner" aria-hidden="true"></span>
+                </button>
+            </form>
+        </section>
+
+        <section class="panel output-panel">
+            <div class="output-header">
+                <div class="output-title">
+                    <h2>Output</h2>
+                    <span class="output-badge">{{if .Result}}Ready{{else}}Awaiting Input{{end}}</span>
+                    <div class="bg-color-picker-container">
+                        <span class="field-label">Background</span>
+                        <div class="color-picker-container">
+                            <input type="color" id="bg-color-input" value="#ffffff" class="color-wheel">
+                            <span class="color-value" id="bg-color-value">#FFFFFF</span>
+                            <button type="button" id="reset-bg-color" class="reset-bg-button">Default</button>
+                        </div>
+                    </div>
+                </div>
+                <button type="button" class="copy-button" id="copy-output" {{if not .Result}}disabled{{end}}>
+                    <span class="button-text">Copy</span>
+                </button>
+            </div>
+
+            {{if .ErrorMessage}}
+            <p class="error-message">{{.ErrorMessage}}</p>
+            {{else if .Result}}
+            <pre class="output-box" id="output-text">{{.Result}}</pre>
+            {{else}}
+            <pre class="output-box" id="output-text"></pre>
+            {{end}}
+        </section>
+
+        <section class="panel history-panel">
+            <div class="history-header">
+                <h2>Recent Inputs</h2>
+                <div class="history-actions">
+                    <span class="history-count" id="history-count">0 saved</span>
+                    <button type="button" class="history-clear" id="clear-history" disabled>Clear history</button>
+                </div>
+            </div>
+            <div class="history-list" id="history-list">
+                <p class="history-empty">Your recent generated outputs will appear here.</p>
+            </div>
+        </section>
+    </main>
+
+ <script>
+const historyKey = 'ascii-art-web-history';
+const historyLimit = 6;
+const textarea = document.getElementById('text');
+const charCount = document.getElementById('char-count');
+const charCounter = document.getElementById('char-counter');
+const form = document.querySelector('form');
+const generateButton = document.getElementById('generate-button');
+const buttonText = generateButton.querySelector('.button-text');
+const copyButton = document.getElementById('copy-output');
+const outputText = document.getElementById('output-text');
+const clearInputButton = document.getElementById('clear-input');
+const outputBadge = document.querySelector('.output-badge');
+const colorInput = document.getElementById('color-input');
+const colorValue = document.getElementById('color-value');
+const historyList = document.getElementById('history-list');
+const historyCount = document.getElementById('history-count');
+const clearHistoryButton = document.getElementById('clear-history');
+const bgColorInput = document.getElementById('bg-color-input');
+const bgColorValue = document.getElementById('bg-color-value');
+const resetBgColorButton = document.getElementById('reset-bg-color');
+
+// ---- CSS for error flash ----
+const style = document.createElement('style');
+
+document.head.appendChild(style);
+
+// ---- Helpers ----
+function getSelectedBanner() {
+    const selected = document.querySelector('input[name="banner"]:checked');
+    return selected ? selected.value : 'standard';
+}
+function getSelectedColor() {
+    return colorInput.value;
+}
+function parseANSIToHTML(text) {
+    if (!text) return '';
+    let html = '';
+    let currentColor = null;
+    let i = 0;
+    
+    while (i < text.length) {
+        // Check for ANSI escape sequence
+        if (text.substring(i, i + 2) === '\x1b[') {
+            // Find the end of the escape sequence
+            let endIdx = text.indexOf('m', i);
+            if (endIdx !== -1) {
+                const escapeSeq = text.substring(i, endIdx + 1);
+                
+                // Parse color code: [38;2;R;G;Bm
+                if (escapeSeq.startsWith('\x1b[38;2;')) {
+                    const parts = escapeSeq.slice(2, -1).split(';');
+                    if (parts.length >= 4 && parts[0] === '38' && parts[1] === '2') {
+                        currentColor = `rgb(${parts[2]}, ${parts[3]}, ${parts[4]})`;
+                    }
+                }
+                // Reset code: [0m
+                else if (escapeSeq === '\x1b[0m') {
+                    if (currentColor && html.endsWith('</span>') === false) {
+                        html += '</span>';
+                    }
+                    currentColor = null;
+                }
+                
+                i = endIdx + 1;
+                continue;
+            }
+        }
+        
+        // Regular character
+        let char = text[i];
+        let charHtml = char
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+        
+        if (currentColor && !html.endsWith('<span style="color: ' + currentColor + '">')) {
+            html += `<span style="color: ${currentColor};">`;
+        }
+        
+        html += charHtml;
+        i++;
+    }
+    
+    if (currentColor) {
+        html += '</span>';
+    }
+    
+    return html;
+}
+function setSelectedBanner(value) {
+    const nextRadio = document.querySelector(`input[name="banner"][value="${value}"]`);
+    if (nextRadio) nextRadio.checked = true;
+}
+function updateOutputState(output, label) {
+    outputText.innerHTML = output ? parseANSIToHTML(output) : '';
+    copyButton.disabled = !output || !output.trim();
+    outputBadge.textContent = output && output.trim() ? label : 'Awaiting Input';
+}
+function updateInputControls() {
+    const currentLength = textarea.value.length;
+    const maxLength = Number(textarea.maxLength) || 2000;
+    const usage = maxLength > 0 ? currentLength / maxLength : 0;
+    charCount.textContent = currentLength;
+    clearInputButton.disabled = currentLength === 0;
+    charCounter.classList.remove('normal', 'warning', 'danger');
+    if (usage >= 0.9 || currentLength >= maxLength) charCounter.classList.add('danger');
+    else if (usage >= 0.7) charCounter.classList.add('warning');
+    else charCounter.classList.add('normal');
+}
+function readHistory() { try { return JSON.parse(localStorage.getItem(historyKey) || '[]'); } catch { return []; } }
+function writeHistory(items) { localStorage.setItem(historyKey, JSON.stringify(items)); }
+function formatTimestamp(ts) { return new Date(ts).toLocaleString([], {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'}); }
+function escapeHtml(value) {
+    return value.replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'","&#39;");
+}
+function truncateText(text,maxLength=50){ return text.length>maxLength?text.slice(0,maxLength)+'...':text; }
+function renderHistoryItem(item,index,compact){
+    const shortInput = truncateText(item.input || '(empty input)', 50);
+    const safeInput = escapeHtml(shortInput);
+    const compactClass = compact ? ' compact' : '';
+    const errorClass = item.error ? ' error' : '';
+    return `
+        <button type="button" class="history-item${compactClass}${errorClass}" data-history-index="${index}">
+            <span class="history-item-header">
+                <span class="history-meta">
+                    <span class="history-banner">${escapeHtml(item.banner)}</span>
+                    <span class="history-time">${formatTimestamp(item.timestamp)}</span>
+                </span>
+                <span class="history-reuse">Reuse</span>
+            </span>
+            <span class="history-input">${safeInput}</span>
+        </button>
+    `;
+}
+function renderHistory() {
+    const items = readHistory();
+    historyCount.textContent = `${items.length} saved`;
+    clearHistoryButton.disabled = items.length===0;
+    if(items.length===0){
+        historyList.innerHTML='<p class="history-empty">Your recent generated inputs will appear here.</p>';
+        return;
+    }
+    const [latest,...older]=items;
+    let markup=`
+        <div class="history-featured">
+            <span class="history-featured-label">Previous input</span>
+            ${renderHistoryItem(latest,0,false)}
+        </div>`;
+    if(older.length>0){
+        markup+=`
+        <div class="history-list-group">
+            <details class="history-disclosure">
+                <summary><span class="history-list-label">Earlier inputs (${older.length})</span></summary>
+                <div class="history-disclosure-body">
+                    <div class="history-simple-list">
+                        ${older.map((item,i)=>renderHistoryItem(item,i+1,true)).join('')}
+                    </div>
+                </div>
+            </details>
+        </div>`;
+    }
+    historyList.innerHTML=markup;
+}
+function saveToHistory(entry){
+    const items=readHistory().filter(item=>!(item.input===entry.input && item.banner===entry.banner && item.output===entry.output));
+    items.unshift(entry);
+    writeHistory(items.slice(0,historyLimit));
+    renderHistory();
+}
+function restoreHistoryItem(index){
+    const items=readHistory();
+    const item=items[index];
+    if(!item)return;
+    textarea.value=item.input;
+    updateInputControls();
+    setSelectedBanner(item.banner);
+    updateOutputState(item.output,item.error?'Error':'History Preview');
+    window.scrollTo({top:0,behavior:'smooth'});
+}
+async function copyOutputText(text){
+    if(navigator.clipboard&&window.isSecureContext){await navigator.clipboard.writeText(text); return;}
+    const helper=document.createElement('textarea');
+    helper.value=text; helper.setAttribute('readonly',''); helper.style.position='fixed'; helper.style.opacity='0'; helper.style.pointerEvents='none';
+    document.body.appendChild(helper); helper.focus(); helper.select();
+    const didCopy=document.execCommand('copy'); document.body.removeChild(helper);
+    if(!didCopy) throw new Error('Copy command failed');
+}
+
+// ---- Event Listeners ----
+textarea.addEventListener('input',()=>{ if(textarea.value.length>2000) textarea.value=textarea.value.slice(0,2000); updateInputControls(); });
+colorInput.addEventListener('input', ()=>{ colorValue.textContent=colorInput.value.toUpperCase(); colorValue.classList.add('highlight'); setTimeout(()=>colorValue.classList.remove('highlight'),300); });
+clearInputButton.addEventListener('click',()=>{ textarea.value=''; updateInputControls(); updateOutputState('','Awaiting Input'); textarea.focus(); });
+historyList.addEventListener('click',e=>{ const item=e.target.closest('.history-item'); if(item) restoreHistoryItem(Number(item.dataset.historyIndex)); });
+clearHistoryButton.addEventListener('click',()=>{ localStorage.removeItem(historyKey); renderHistory(); });
+bgColorInput.addEventListener('input', () => {
+    bgColorValue.textContent = bgColorInput.value.toUpperCase();
+    bgColorValue.classList.add('highlight');
+    setTimeout(() => bgColorValue.classList.remove('highlight'), 300);
+    outputText.style.backgroundColor = bgColorInput.value;
+});
+resetBgColorButton.addEventListener('click', () => {
+    bgColorInput.value = '#ffffff';
+    bgColorValue.textContent = '#FFFFFF';
+    outputText.style.removeProperty('background-color');
+});
+if(copyButton && outputText){ copyButton.addEventListener('click',async()=>{ const text=outputText.textContent; if(!text.trim()) return; try{ await copyOutputText(text); copyButton.classList.add('copied'); copyButton.querySelector('.button-text').textContent='Copied!'; setTimeout(()=>{copyButton.classList.remove('copied'); copyButton.querySelector('.button-text').textContent='Copy';},1400); }catch{ copyButton.querySelector('.button-text').textContent='Copy failed'; setTimeout(()=>{copyButton.querySelector('.button-text').textContent='Copy';},1400); } }); }
+
+// ---- Fetch submission ----
+form.addEventListener('submit', async e=>{
+    e.preventDefault();
+    generateButton.classList.add('loading'); generateButton.disabled=true; buttonText.textContent='Generating...';
+    const payload={text:textarea.value,banner:getSelectedBanner(),color:getSelectedColor()};
+    try{
+        const res=await fetch('/api/ascii-art',{
+            method:'POST',
+            headers:{'Content-Type':'application/json'},
+            body:JSON.stringify(payload)
+        });
+        const data=await res.json();
+        if(!res.ok){
+            updateOutputState(data.error||'Server error','Error');
+            // Flash red background
+            outputText.classList.add('error-flash');
+            setTimeout(()=>outputText.classList.remove('error-flash'),800);
+            // Save error to history
+            saveToHistory({input:textarea.value,banner:getSelectedBanner(),color:getSelectedColor(),output:data.error||'',timestamp:Date.now(),error:true});
+        } else {
+            updateOutputState(data.result,'Ready');
+            saveToHistory({input:textarea.value,banner:getSelectedBanner(),color:getSelectedColor(),output:data.result,timestamp:Date.now(),error:false});
+        }
+    }catch(err){
+        updateOutputState('Network error','Error');
+        outputText.classList.add('error-flash');
+        setTimeout(()=>outputText.classList.remove('error-flash'),800);
+        saveToHistory({input:textarea.value,banner:getSelectedBanner(),color:getSelectedColor(),output:'Network error',timestamp:Date.now(),error:true});
+    } finally{
+        generateButton.classList.remove('loading'); generateButton.disabled=false; buttonText.textContent='Generate';
+    }
+});
+
+updateInputControls();
+renderHistory();
+</script>
+    
+</body>
+
+</html>

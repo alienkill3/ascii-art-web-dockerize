@@ -6,6 +6,6 @@ services:
     ports:
       - "8080:8080"
     labels:
-      maintainer: "ksokos"
+      maintainer: "ktsioupr"
       app: "go-web-server"
       version: "1.0"
